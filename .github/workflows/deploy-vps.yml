@@ -1,0 +1,58 @@
+name: Build & Remote VPS Deployment via SSH
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-image:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout mã nguồn
+        uses: actions/checkout@v5
+
+      - name: Đăng nhập vào GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Đóng gói và đẩy Docker Image lên GHCR
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/${{ github.actor }}/my-app:latest
+
+  deploy-vps:
+    name: Deploy Container to Remote VPS via SSH
+    needs: build-image
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Thực thi câu lệnh triển khai trên VPS qua SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            echo "Kéo Docker Image mới nhất từ GHCR..."
+            docker pull ghcr.io/${{ github.actor }}/my-app:latest
+            
+            echo "Dừng và xóa container cũ nếu đang chạy..."
+            docker stop my-app || true
+            docker rm my-app || true
+            
+            echo "Khởi chạy container mới lắng nghe trên cổng 8080..."
+            docker run -d --name my-app -p 8080:8080 ghcr.io/${{ github.actor }}/my-app:latest
+            
+            echo "Kiểm tra trạng thái container:"
+            docker ps --filter "name=my-app"
